@@ -1,15 +1,12 @@
 const std = @import("std");
-const cpu = @import("./cpu/Cpu.zig");
-const Bus = @import("./bus.zig").Bus;
+const Emulated6502 = @import("./cpu/Cpu.zig").Emulated6502;
+const Bus = @import("./Bus.zig").Bus;
 
 pub fn main() anyerror!void {
     std.debug.warn("All your base are belong to us.\n", .{});
 
-    var bus = Bus{
-        .memory = undefined,
-    };
-
-    const cpu = cpu.Emulated6502{
-        .bus = bus,
+    var memory = [_]u8{0} ** (64 * 1024);
+    var cpu = Emulated6502{
+        .bus = &Bus.init(&memory),
     };
 }
