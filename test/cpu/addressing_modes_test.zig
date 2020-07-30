@@ -362,12 +362,13 @@ test "rel: positive offset" {
         .pc = 0x20,
     };
     memory[0x20] = 0x10;
-    memory[0x30] = 0x03;
+    memory[0x31] = 0x03;
 
     const extra_cycle = addressing_modes.rel(&cpu);
 
-    assert(cpu.operand_addr == 0x30);
+    assert(cpu.operand_addr == 0x31);
     assert(cpu.operand == 0x03);
+    assert(cpu.pc == 0x21);
     assert(extra_cycle == 0);
 }
 
@@ -375,15 +376,49 @@ test "rel: negative offset" {
     var memory = [_]u8{0} ** (64 * 1024);
     var cpu = Emulated6502{
         .bus = &Bus.init(&memory),
-        .pc = 0x20,
+        .pc = 0x2020,
     };
-    memory[0x20] = 0xF0;
-    memory[0x10] = 0x03;
+    memory[0x2020] = 0xF0;
+    memory[0x2011] = 0x03;
 
     const extra_cycle = addressing_modes.rel(&cpu);
 
-    assert(cpu.operand_addr == 0x10);
+    assert(cpu.operand_addr == 0x2011);
     assert(cpu.operand == 0x03);
-    assert(cpu.pc == 0x21);
+    assert(cpu.pc == 0x2021);
     assert(extra_cycle == 0);
+}
+
+test "rel: negative offset, cross page boundary" {
+    var memory = [_]u8{0} ** (64 * 1024);
+    var cpu = Emulated6502{
+        .bus = &Bus.init(&memory),
+        .pc = 0x2000,
+    };
+    memory[0x2000] = 0xF0;
+    memory[0x1FF1] = 0x03;
+
+    const extra_cycle = addressing_modes.rel(&cpu);
+
+    assert(cpu.operand_addr == 0x1FF1);
+    assert(cpu.operand == 0x03);
+    assert(cpu.pc == 0x2001);
+    assert(extra_cycle == 1);
+}
+
+test "rel: positive offset, cross page boundary" {
+    var memory = [_]u8{0} ** (64 * 1024);
+    var cpu = Emulated6502{
+        .bus = &Bus.init(&memory),
+        .pc = 0xF9,
+    };
+    memory[0xF9] = 0x10;
+    memory[0x010A] = 0x03;
+
+    const extra_cycle = addressing_modes.rel(&cpu);
+
+    assert(cpu.operand_addr == 0x010A);
+    assert(cpu.operand == 0x03);
+    assert(cpu.pc == 0xFA);
+    assert(extra_cycle == 1);
 }

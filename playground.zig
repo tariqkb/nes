@@ -4,11 +4,8 @@ const as = @import("builtin").as;
 const assert = std.debug.assert;
 
 test "playground" {
-    const a: u8 = 15;
-    const b: u8 = 6; // -10
-
-    const c = a +% (b | 0xF0);
-
-    warn("\nc: {}\n", .{c});
-    assert(c == 5);
+    var b: u8 = undefined;
+    const a: u8 = 0b00111111;
+    const c = @shlWithOverflow(u8, a, 1, &b);
+    warn("\nc: {} b: {} \n", .{ c, b });
 }

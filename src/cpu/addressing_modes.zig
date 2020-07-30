@@ -134,7 +134,6 @@ pub fn indY(cpu: *Emulated6502) u8 {
 }
 
 pub fn rel(cpu: *Emulated6502) u8 {
-    const from_addr = cpu.pc;
     var offset: u16 = cpu.read(cpu.pc);
     cpu.pc += 1;
 
@@ -142,7 +141,11 @@ pub fn rel(cpu: *Emulated6502) u8 {
         offset |= 0xFF00;
     }
 
-    cpu.operand_addr = from_addr +% offset;
+    cpu.operand_addr = cpu.pc +% offset;
     cpu.operand = cpu.read(cpu.operand_addr);
+
+    if (cpu.operand_addr >> 8 != cpu.pc >> 8) {
+        return 1;
+    }
     return 0;
 }
