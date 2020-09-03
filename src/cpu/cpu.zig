@@ -33,7 +33,9 @@ pub const Emulated6502 = struct {
             // std.debug.warn("[opcode] {} operand={} addr={}\n", .{ op_code.name, self.operand, self.operand_addr });
             const extra_cycle = op_code.addr_mode(self) & op_code.operation(self);
 
-            self.cycles += op_code.cycles + extra_cycle;
+            const op_code_cycles = op_code.cycles orelse unreachable;
+
+            self.cycles += op_code_cycles + extra_cycle;
         }
 
         self.cycles -= 1;

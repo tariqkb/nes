@@ -11,7 +11,7 @@ pub const OpCode = struct {
     name: []const u8,
     operation: operation_fn,
     addr_mode: addressing_mode_fn,
-    cycles: u8,
+    cycles: ?u8,
 };
 
 fn invalidOpCode(cpu: *Emulated6502) u8 {
@@ -149,166 +149,354 @@ fn PLP(cpu: *Emulated6502) u8 {
 }
 
 fn BMI(cpu: *Emulated6502) u8 {
+    if (cpu.getFlag(StatusFlag.N)) {
+        cpu.pc = cpu.operand_addr;
+        cpu.cycles += 1;
+        return 1;
+    }
     return 0;
 }
 
 fn SEC(cpu: *Emulated6502) u8 {
+    cpu.setFlag(StatusFlag.C, true);
     return 0;
 }
 
 fn RTI(cpu: *Emulated6502) u8 {
+    cpu.stkp += 1;
+    cpu.status = cpu.read(0x0100 + @as(u16, cpu.stkp));
+    cpu.stkp += 1;
+    const lo = cpu.read(0x0100 + @as(u16, cpu.stkp));
+    cpu.stkp += 1;
+    const hi: u16 = cpu.read(0x0100 + @as(u16, cpu.stkp));
+
+    cpu.pc = hi << 8 | lo;
+    return 0;
+}
+
+fn JMP(cpu: *Emulated6502) u8 {
+    cpu.pc = cpu.operand_addr;
     return 0;
 }
 
 fn EOR(cpu: *Emulated6502) u8 {
-    return 0;
+    cpu.ac ^= cpu.operand;
+
+    cpu.setFlag(StatusFlag.N, cpu.ac & 0x80 != 0);
+    cpu.setFlag(StatusFlag.Z, cpu.ac == 0);
+    return 1;
 }
 
 fn LSR(cpu: *Emulated6502) u8 {
+    const result = cpu.operand >> 1;
+
+    cpu.setFlag(StatusFlag.N, false);
+    cpu.setFlag(StatusFlag.Z, result == 0);
+    cpu.setFlag(StatusFlag.C, cpu.operand & 1 != 0);
+
+    const op_code = cpu.op_code orelse unreachable;
+
+    if (op_code.addr_mode == am.acc) {
+        cpu.ac = result;
+    } else {
+        cpu.write(cpu.operand_addr, result);
+    }
+
     return 0;
 }
 
 fn PHA(cpu: *Emulated6502) u8 {
+    cpu.write(0x0100 + @as(u16, cpu.stkp), cpu.ac);
+    cpu.stkp -= 1;
     return 0;
 }
 
 fn BVC(cpu: *Emulated6502) u8 {
+    if (!cpu.getFlag(StatusFlag.V)) {
+        cpu.pc = cpu.operand_addr;
+        cpu.cycles += 1;
+        return 1;
+    }
     return 0;
 }
 
 fn CLI(cpu: *Emulated6502) u8 {
+    cpu.setFlag(StatusFlag.I, false);
+    return 0;
+}
+
+fn RTS(cpu: *Emulated6502) u8 {
+    cpu.stkp += 1;
+    const lo = cpu.read(0x0100 + @as(u16, cpu.stkp));
+    cpu.stkp += 1;
+    const hi: u16 = cpu.read(0x0100 + @as(u16, cpu.stkp));
+
+    cpu.pc = (hi << 8 | lo) + 1;
+
     return 0;
 }
 
 fn ADC(cpu: *Emulated6502) u8 {
-    return 0;
+    const result: u16 = @as(u16, cpu.ac) + @as(u16, cpu.operand) +
+        @as(u16, cpu.status & @enumToInt(StatusFlag.C));
+
+    cpu.setFlag(StatusFlag.N, result & 0x80 != 0);
+    cpu.setFlag(StatusFlag.V, (~(cpu.ac ^ cpu.operand) & (cpu.ac ^ result)) & 0x80 != 0);
+    cpu.setFlag(StatusFlag.Z, result == 0);
+    cpu.setFlag(StatusFlag.C, result > 0xFF);
+
+    cpu.ac = @truncate(u8, result);
+    return 1;
 }
 
 fn PLA(cpu: *Emulated6502) u8 {
+    cpu.stkp += 1;
+    cpu.ac = cpu.read(0x0100 + @as(u16, cpu.stkp));
+
     return 0;
 }
 
 fn ROR(cpu: *Emulated6502) u8 {
+    var result = cpu.operand >> 1;
+    if (cpu.getFlag(StatusFlag.C)) {
+        result |= 0b10000000;
+    }
+
+    cpu.setFlag(StatusFlag.C, cpu.operand & 1 != 0);
+    cpu.setFlag(StatusFlag.Z, result == 0);
+    cpu.setFlag(StatusFlag.N, result & 0x80 != 0);
+
+    const op_code = cpu.op_code orelse unreachable;
+
+    if (op_code.addr_mode == am.acc) {
+        cpu.ac = result;
+    } else {
+        cpu.write(cpu.operand_addr, result);
+    }
     return 0;
 }
 
 fn BVS(cpu: *Emulated6502) u8 {
+    if (cpu.getFlag(StatusFlag.V)) {
+        cpu.pc = cpu.operand_addr;
+        cpu.cycles += 1;
+        return 1;
+    }
     return 0;
 }
 
 fn SEI(cpu: *Emulated6502) u8 {
+    cpu.setFlag(StatusFlag.I, true);
     return 0;
 }
 
 fn STA(cpu: *Emulated6502) u8 {
+    cpu.write(cpu.operand_addr, cpu.ac);
     return 0;
 }
 
 fn STY(cpu: *Emulated6502) u8 {
+    cpu.write(cpu.operand_addr, cpu.y);
     return 0;
 }
 
 fn STX(cpu: *Emulated6502) u8 {
+    cpu.write(cpu.operand_addr, cpu.x);
     return 0;
 }
 
 fn DEY(cpu: *Emulated6502) u8 {
+    cpu.y -= 1;
+
+    cpu.setFlag(StatusFlag.Z, cpu.y == 0);
+    cpu.setFlag(StatusFlag.N, cpu.y & 0x80 != 0);
     return 0;
 }
 
 fn TXA(cpu: *Emulated6502) u8 {
+    cpu.ac = cpu.x;
+
+    cpu.setFlag(StatusFlag.Z, cpu.ac == 0);
+    cpu.setFlag(StatusFlag.N, cpu.ac & 0x80 != 0);
     return 0;
 }
 
 fn BCC(cpu: *Emulated6502) u8 {
+    if (!cpu.getFlag(StatusFlag.C)) {
+        cpu.pc = cpu.operand_addr;
+        cpu.cycles += 1;
+        return 1;
+    }
     return 0;
 }
 
 fn TYA(cpu: *Emulated6502) u8 {
+    cpu.ac = cpu.y;
+
+    cpu.setFlag(StatusFlag.Z, cpu.ac == 0);
+    cpu.setFlag(StatusFlag.N, cpu.ac & 0x80 != 0);
     return 0;
 }
 
 fn TXS(cpu: *Emulated6502) u8 {
-    return 0;
-}
-
-fn BBS1(cpu: *Emulated6502) u8 {
+    cpu.stkp = cpu.x;
     return 0;
 }
 
 fn LDY(cpu: *Emulated6502) u8 {
-    return 0;
+    cpu.y = cpu.operand;
+
+    cpu.setFlag(StatusFlag.Z, cpu.y == 0);
+    cpu.setFlag(StatusFlag.N, cpu.y & 0x80 != 0);
+    return 1;
 }
 
 fn LDA(cpu: *Emulated6502) u8 {
-    return 0;
+    cpu.ac = cpu.operand;
+
+    cpu.setFlag(StatusFlag.Z, cpu.ac == 0);
+    cpu.setFlag(StatusFlag.N, cpu.ac & 0x80 != 0);
+    return 1;
 }
 
 fn LDX(cpu: *Emulated6502) u8 {
-    return 0;
+    cpu.x = cpu.operand;
+
+    cpu.setFlag(StatusFlag.Z, cpu.x == 0);
+    cpu.setFlag(StatusFlag.N, cpu.x & 0x80 != 0);
+    return 1;
 }
 
 fn TAY(cpu: *Emulated6502) u8 {
+    cpu.y = cpu.ac;
+
+    cpu.setFlag(StatusFlag.Z, cpu.y == 0);
+    cpu.setFlag(StatusFlag.N, cpu.y & 0x80 != 0);
     return 0;
 }
 
 fn TAX(cpu: *Emulated6502) u8 {
+    cpu.x = cpu.ac;
+
+    cpu.setFlag(StatusFlag.Z, cpu.x == 0);
+    cpu.setFlag(StatusFlag.N, cpu.x & 0x80 != 0);
     return 0;
 }
 
 fn BCS(cpu: *Emulated6502) u8 {
+    if (cpu.getFlag(StatusFlag.C)) {
+        cpu.pc = cpu.operand_addr;
+        cpu.cycles += 1;
+        return 1;
+    }
     return 0;
 }
 
 fn CLV(cpu: *Emulated6502) u8 {
+    cpu.setFlag(StatusFlag.V, false);
     return 0;
 }
 
 fn TSX(cpu: *Emulated6502) u8 {
+    cpu.x = cpu.stkp;
     return 0;
 }
 
 fn CPY(cpu: *Emulated6502) u8 {
+    const result = cpu.y -% cpu.operand;
+
+    cpu.setFlag(StatusFlag.N, result & 0x80 != 0);
+    cpu.setFlag(StatusFlag.Z, result == 0);
+    cpu.setFlag(StatusFlag.C, cpu.y >= cpu.operand);
     return 0;
 }
 
 fn CMP(cpu: *Emulated6502) u8 {
-    return 0;
+    const result = cpu.ac -% cpu.operand;
+
+    cpu.setFlag(StatusFlag.N, result & 0x80 != 0);
+    cpu.setFlag(StatusFlag.Z, result == 0);
+    cpu.setFlag(StatusFlag.C, cpu.ac >= cpu.operand);
+    return 1;
 }
 
 fn DEC(cpu: *Emulated6502) u8 {
+    const result = cpu.operand -% 1;
+    cpu.write(cpu.operand_addr, result);
+
+    cpu.setFlag(StatusFlag.N, result & 0x80 != 0);
+    cpu.setFlag(StatusFlag.Z, result == 0);
     return 0;
 }
 
 fn INY(cpu: *Emulated6502) u8 {
+    cpu.y +%= 1;
+
+    cpu.setFlag(StatusFlag.N, cpu.y & 0x80 != 0);
+    cpu.setFlag(StatusFlag.Z, cpu.y == 0);
     return 0;
 }
 
 fn DEX(cpu: *Emulated6502) u8 {
+    cpu.x -%= 1;
+
+    cpu.setFlag(StatusFlag.N, cpu.x & 0x80 != 0);
+    cpu.setFlag(StatusFlag.Z, cpu.x == 0);
     return 0;
 }
 
 fn BNE(cpu: *Emulated6502) u8 {
+    if (!cpu.getFlag(StatusFlag.Z)) {
+        cpu.pc = cpu.operand_addr;
+        cpu.cycles += 1;
+        return 1;
+    }
     return 0;
 }
 
 fn CLD(cpu: *Emulated6502) u8 {
+    cpu.setFlag(StatusFlag.D, false);
     return 0;
 }
 
 fn SBC(cpu: *Emulated6502) u8 {
-    return 0;
+    const result: u16 = @as(u16, cpu.ac) + @as(u16, ~cpu.operand) +
+        @as(u16, cpu.status & @enumToInt(StatusFlag.C));
+
+    cpu.setFlag(StatusFlag.N, result & 0x80 != 0);
+    cpu.setFlag(StatusFlag.V, ((result ^ cpu.ac) & (result ^ ~cpu.operand)) & 0x80 != 0);
+    cpu.setFlag(StatusFlag.Z, result == 0);
+    cpu.setFlag(StatusFlag.C, result > 0xFF);
+
+    cpu.ac = @truncate(u8, result);
+    return 1;
 }
 
+// stop for today (10)
+
 fn CPX(cpu: *Emulated6502) u8 {
+    const result = cpu.x -% cpu.operand;
+
+    cpu.setFlag(StatusFlag.N, result & 0x80 != 0);
+    cpu.setFlag(StatusFlag.Z, result == 0);
+    cpu.setFlag(StatusFlag.C, cpu.x >= cpu.operand);
     return 0;
 }
 
 fn INC(cpu: *Emulated6502) u8 {
+    const result = cpu.operand +% 1;
+    cpu.write(cpu.operand_addr, result);
+
+    cpu.setFlag(StatusFlag.N, result & 0x80 != 0);
+    cpu.setFlag(StatusFlag.Z, result == 0);
     return 0;
 }
 
 fn INX(cpu: *Emulated6502) u8 {
+    cpu.x +%= 1;
+
+    cpu.setFlag(StatusFlag.N, cpu.x & 0x80 != 0);
+    cpu.setFlag(StatusFlag.Z, cpu.x == 0);
     return 0;
 }
 
@@ -316,11 +504,19 @@ fn NOP(cpu: *Emulated6502) u8 {
     return 0;
 }
 
+// stop for today (14)
+
 fn BEQ(cpu: *Emulated6502) u8 {
+    if (cpu.getFlag(StatusFlag.Z)) {
+        cpu.pc = cpu.operand_addr;
+        cpu.cycles += 1;
+        return 1;
+    }
     return 0;
 }
 
 fn SED(cpu: *Emulated6502) u8 {
+    cpu.setFlag(StatusFlag.D, true);
     return 0;
 }
 
@@ -987,10 +1183,10 @@ pub const op_codes = [_]OpCode{
     },
     OpCode{
         .code = 0x5A,
-        .name = "PHY",
-        .operation = PHY,
-        .addr_mode = am.impl,
-        .cycles = 3,
+        .name = "XXX",
+        .operation = invalidOpCode,
+        .addr_mode = am.imm,
+        .cycles = null,
     },
     OpCode{
         .code = 0x5B,
@@ -1072,7 +1268,7 @@ pub const op_codes = [_]OpCode{
         .name = "ADC",
         .operation = ADC,
         .addr_mode = am.zpg,
-        .cycles = 5,
+        .cycles = 3,
     },
     OpCode{
         .code = 0x66,
@@ -1490,10 +1686,10 @@ pub const op_codes = [_]OpCode{
     },
     OpCode{
         .code = 0x9F,
-        .name = "BBS1 zpg",
-        .operation = BBS1,
-        .addr_mode = am.zpg,
-        .cycles = 5,
+        .name = "XXX",
+        .operation = invalidOpCode,
+        .addr_mode = am.imm,
+        .cycles = null,
     },
 
     // ===
@@ -1704,7 +1900,7 @@ pub const op_codes = [_]OpCode{
     OpCode{
         .code = 0xBC,
         .name = "LDY abs,X",
-        .operation = LSY,
+        .operation = LDY,
         .addr_mode = am.absX,
         .cycles = 4,
     },
